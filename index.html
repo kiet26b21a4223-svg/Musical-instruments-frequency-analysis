@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Musical Instrument Frequency Analyzer | B4</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#0b1020;color:#f1f5ff;line-height:1.6}
+header{text-align:center;padding:32px 16px;background:linear-gradient(135deg,#253d75,#087e8b)}
+header h1{font-size:clamp(25px,4vw,38px);margin:0}
+main{max-width:1100px;margin:auto;padding:20px}
+.card{background:#151f34;border:1px solid #34425c;border-radius:14px;padding:20px;margin-bottom:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px}
+label{display:block;color:#c6d2e7;margin-bottom:6px}
+input,select,button{width:100%;padding:11px;border-radius:7px;border:1px solid #425474;background:#0b1528;color:white}
+button{background:#0891b2;font-weight:bold;cursor:pointer;margin-top:15px}
+.metric{background:#0b1528;padding:15px;border-radius:9px}
+.metric strong{font-size:24px;color:#67e8f9}
+canvas{width:100%;height:300px;display:block;background:#0b1528;border-radius:8px}
+table{width:100%;border-collapse:collapse}
+td,th{text-align:left;padding:10px;border-bottom:1px solid #34425c}
+.note{font-size:13px;color:#b8c5db}
+footer{text-align:center;padding:20px;color:#b8c5db}
+</style>
+</head>
+<body>
+<header>
+<h1>Musical Instrument Frequency Analyzer</h1>
+<p><b>Mathematics Mini Project — B4</b></p>
+<p>Team: B4 Team | Members: Update with your names</p>
+</header>
+
+<main>
+<section class="card">
+<h2>About the Project</h2>
+<p>Model a guitar string as masses connected by springs. Construct a tridiagonal stiffness matrix and calculate eigenvalues and eigenvectors to determine natural frequencies and visualize the first three vibration modes.</p>
+<p class="note">Instrument presets below are illustrative mathematical models, not measured instrument data.</p>
+</section>
+
+<section class="card">
+<h2>Input Parameters</h2>
+<div class="grid">
+<div><label for="instrument">Instrument model</label>
+<select id="instrument">
+<option value="guitar">Guitar-like string</option>
+<option value="violin">Violin-like string</option>
+<option value="piano">Piano-like string</option>
+<option value="bass">Bass-like string</option>
+<option value="custom">Custom</option>
+</select></div>
+<div><label for="n">Number of masses (N)</label><input id="n" type="number" min="3" max="20" value="12"></div>
+<div><label for="mass">Mass per particle (kg)</label><input id="mass" type="number" min="0.000001" step="any" value="0.005"></div>
+<div><label for="k">Spring stiffness (N/m)</label><input id="k" type="number" min="0.000001" step="any" value="800"></div>
+</div>
+<button id="run">Analyze Frequencies</button>
+<p id="status" role="status"></p>
+</section>
+
+<section class="card">
+<h2>Frequency Results</h2>
+<div class="grid">
+<div class="metric">First mode<br><strong id="f1">—</strong> Hz</div>
+<div class="metric">Second mode<br><strong id="f2">—</strong> Hz</div>
+<div class="metric">Third mode<br><strong id="f3">—</strong> Hz</div>
+</div>
+</section>
+
+<section class="card">
+<h2>Natural Frequency Chart</h2>
+<canvas id="freqChart" aria-label="Natural frequencies"></canvas>
+<p class="note">X-axis: Mode number | Y-axis: Frequency (Hz) | Legend: Modes 1, 2, 3</p>
+</section>
+
+<section class="card">
+<h2>Vibration Mode Shapes</h2>
+<canvas id="modeChart" aria-label="Eigenvector vibration modes"></canvas>
+<p class="note">X-axis: Mass position | Y-axis: Normalized displacement</p>
+</section>
+
+<section class="card">
+<h2>Stiffness Sensitivity Analysis</h2>
+<label for="sensitivity">Stiffness change: ±<span id="pct">50</span>%</label>
+<input id="sensitivity" type="range" min="10" max="90" step="10" value="50">
+<canvas id="sensitivityChart" aria-label="Stiffness sensitivity"></canvas>
+<p class="note">Compare frequencies at lower, original, and higher stiffness.</p>
+</section>
+
+<section class="card">
+<h2>Eigenvalue Table</h2>
+<div style="overflow-x:auto"><table>
+<thead><tr><th>Mode</th><th>Eigenvalue λ (s⁻²)</th><th>ω (rad/s)</th><th>Frequency (Hz)</th></tr></thead>
+<tbody id="results"></tbody>
+</table></div>
+</section>
+
+<section class="card">
+<h2>Mathematical Formula</h2>
+<p>Equation of motion: Mx″ + Kx = 0</p>
+<p>Eigenvalue equation: Kφ = λMφ</p>
+<p>Angular frequency: ω = √λ</p>
+<p>Frequency: f = ω / (2π)</p>
+<p>For fixed ends, the stiffness matrix has 2k on its main diagonal and −k on the adjacent diagonals. The mass matrix is M = mI.</p>
+</section>
+</main>
+<footer>Musical Instrument Frequency Analyzer | B4 Team Project</footer>
+
+<script>
+"use strict";
+
+const presets={
+ guitar:{m:0.005,k:800},
+ violin:{m:0.003,k:1000},
+ piano:{m:0.010,k:1800},
+ bass:{m:0.012,k:650}
+};
+
+const $=id=>document.getElementById(id);
+let current=null;
+
+$("instrument").addEventListener("change",()=>{
+ const p=presets[$("instrument").value];
+ if(p){$("mass").value=p.m;$("k").value=p.k;}
+});
+
+$("sensitivity").addEventListener("input",()=>{
+ $("pct").textContent=$("sensitivity").value;
+ analyze();
+});
+
+$("run").addEventListener("click",analyze);
+
+function solveSymmetric(A){
+ const n=A.length;
+ const V=Array.from({length:n},(_,i)=>
+  Array.from({length:n},(_,j)=>i===j?1:0));
+ const maxIter=100*n*n;
+
+ for(let iter=0;iter<maxIter;iter++){
+  let p=0,q=1,max=0;
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+   if(Math.abs(A[i][j])>max){
+    max=Math.abs(A[i][j]);p=i;q=j;
+   }
+  }
+  if(max<1e-12)break;
+
+  const apq=A[p][q];
+  const tau=(A[q][q]-A[p][p])/(2*apq);
+  const t=(tau>=0?1:-1)/(Math.abs(tau)+Math.sqrt(1+tau*tau));
+  const c=1/Math.sqrt(1+t*t),s=t*c;
+  const app=A[p][p],aqq=A[q][q];
+
+  for(let r=0;r<n;r++){
+   if(r!==p&&r!==q){
+    const rp=A[r][p],rq=A[r][q];
+    A[r][p]=A[p][r]=c*rp-s*rq;
+    A[r][q]=A[q][r]=s*rp+c*rq;
+   }
+  }
+  A[p][p]=app-t*apq;
+  A[q][q]=aqq+t*apq;
+  A[p][q]=A[q][p]=0;
+
+  for(let r=0;r<n;r++){
+   const vp=V[r][p],vq=V[r][q];
+   V[r][p]=c*vp-s*vq;
+   V[r][q]=s*vp+c*vq;
+  }
+ }
+
+ const order=Array.from({length:n},(_,i)=>i).sort((a,b)=>A[a][a]-A[b][b]);
+ return {
+  values:order.map(i=>A[i][i]),
+  vectors:Array.from({length:n},(_,r)=>order.map(i=>V[r][i]))
+ };
+}
+
+function model(n,m,k){
+ // K/m: diagonal 2k/m; adjacent entries -k/m.
+ const A=Array.from({length:n},(_,i)=>
+  Array.from({length:n},(_,j)=>{
+   if(i===j)return 2*k/m;
+   if(Math.abs(i-j)===1)return -k/m;
+   return 0;
+  })
+ );
+ const e=solveSymmetric(A);
+ const values=e.values.slice(0,3);
+ const frequencies=values.map(v=>Math.sqrt(Math.max(0,v))/(2*Math.PI));
+ const modes=Array.from({length:3},(_,j)=>{
+  const v=e.vectors.map(row=>row[j]);
+  const mx=Math.max(...v.map(Math.abs))||1;
+  return v.map(x=>x/mx);
+ });
+ return {values,frequencies,modes};
+}
+
+function canvasSetup(id){
+ const c=$(id),w=c.clientWidth||500,h=300,dpr=window.devicePixelRatio||1;
+ c.width=w*dpr;c.height=h*dpr;
+ const ctx=c.getContext("2d");
+ ctx.setTransform(dpr,0,0,dpr,0,0);
+ return {ctx,w,h};
+}
+
+const colors=["#38bdf8","#fbbf24","#c084fc"];
+
+function axes(ctx,w,h,title,xlabel,ylabel,ymin,ymax){
+ const L=58,R=w-15,T=35,B=h-45;
+ ctx.clearRect(0,0,w,h);
+ ctx.font="12px Arial";ctx.fillStyle="#f1f5ff";
+ ctx.fillText(title,L,19);
+ ctx.strokeStyle="#34425c";ctx.fillStyle="#bdcce2";
+ ctx.textAlign="right";
+ for(let i=0;i<=4;i++){
+  const y=B-(B-T)*i/4;
+  ctx.beginPath();ctx.moveTo(L,y);ctx.lineTo(R,y);ctx.stroke();
+  ctx.fillText((ymin+(ymax-ymin)*i/4).toFixed(2),L-7,y+4);
+ }
+ ctx.textAlign="center";
+ ctx.fillText(xlabel,(L+R)/2,h-9);
+ ctx.save();ctx.translate(14,(T+B)/2);ctx.rotate(-Math.PI/2);
+ ctx.fillText(ylabel,0,0);ctx.restore();
+ return {L,R,T,B};
+}
+
+function frequencyChart(freq){
+ const {ctx,w,h}=canvasSetup("freqChart");
+ const max=Math.max(...freq)*1.2||1;
+ const a=axes(ctx,w,h,"First Three Natural Frequencies","Mode number","Frequency (Hz)",0,max);
+ const bw=Math.min(55,(a.R-a.L)/5);
+ freq.forEach((v,i)=>{
+  const x=a.L+(i+1)*(a.R-a.L)/4-bw/2;
+  const bh=v/max*(a.B-a.T);
+  ctx.fillStyle=colors[i];ctx.fillRect(x,a.B-bh,bw,bh);
+  ctx.fillStyle="#fff";ctx.textAlign="center";
+  ctx.fillText(v.toFixed(2),x+bw/2,a.B-bh-7);
+  ctx.fillText(String(i+1),x+bw/2,a.B+17);
+ });
+}
+
+function modeChart(modes){
+ const {ctx,w,h}=canvasSetup("modeChart");
+ const a=axes(ctx,w,h,"Eigenvector Mode Shapes","Mass position","Normalized displacement",-1.15,1.15);
+ modes.forEach((v,i)=>{
+  ctx.strokeStyle=colors[i];ctx.lineWidth=2;ctx.beginPath();
+  v.forEach((z,j)=>{
+   const x=a.L+(a.R-a.L)*j/(v.length-1);
+   const y=a.B-(z+1.15)/2.3*(a.B-a.T);
+   if(j===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+ });
+ const legend=["Mode 1","Mode 2","Mode 3"];
+ ctx.font="12px Arial";
+ legend.forEach((t,i)=>{
+  ctx.fillStyle=colors[i];ctx.fillRect(a.R-80,a.T+i*17,10,4);
+  ctx.fillStyle="#fff";ctx.textAlign="left";
+  ctx.fillText(t,a.R-65,a.T+5+i*17);
+ });
+}
+
+function sensitivityChart(n,m,k,base){
+ const p=Number($("sensitivity").value)/100;
+ const lo=model(n,m,k*(1-p)).frequencies;
+ const hi=model(n,m,k*(1+p)).frequencies;
+ const max=Math.max(...lo,...hi,...base)*1.15||1;
+ const {ctx,w,h}=canvasSetup("sensitivityChart");
+ const a=axes(ctx,w,h,"Effect of Spring Stiffness","Mode number","Frequency (Hz)",0,max);
+ const bw=Math.min(22,(a.R-a.L)/12);
+ for(let i=0;i<3;i++){
+  const center=a.L+(i+.5)*(a.R-a.L)/3;
+  [lo[i],base[i],hi[i]].forEach((v,j)=>{
+   const bh=v/max*(a.B-a.T);
+   ctx.fillStyle=[colors[1],colors[0],colors[2]][j];
+   ctx.fillRect(center+(j-1)*bw-bw/2,a.B-bh,bw,bh);
+  });
+  ctx.fillStyle="#fff";ctx.textAlign="center";
+  ctx.fillText("Mode "+(i+1),center,a.B+17);
+ }
+ ctx.textAlign="left";
+ [["Lower k",colors[1]],["Original k",colors[0]],["Higher k",colors[2]]].forEach((x,i)=>{
+  ctx.fillStyle=x[1];ctx.fillRect(a.L+i*100,a.T,9,9);
+  ctx.fillStyle="#fff";ctx.fillText(x[0],a.L+13+i*100,a.T+9);
+ });
+}
+
+function analyze(){
+ const n=Number($("n").value),m=Number($("mass").value),k=Number($("k").value);
+ if(!Number.isInteger(n)||n<3||n>20||!Number.isFinite(m)||m<=0||!Number.isFinite(k)||k<=0){
+  $("status").textContent="Enter N between 3 and 20, and positive mass and stiffness.";
+  return;
+ }
+ try{
+  current=model(n,m,k);
+  current.values.forEach((v,i)=>{
+   $("f"+(i+1)).textContent=current.frequencies[i].toFixed(3);
+  });
+  $("results").innerHTML=current.values.map((v,i)=>
+   `<tr><td>${i+1}</td><td>${v.toFixed(6)}</td><td>${Math.sqrt(v).toFixed(6)}</td><td>${current.frequencies[i].toFixed(6)}</td></tr>`
+  ).join("");
+  frequencyChart(current.frequencies);
+  modeChart(current.modes);
+  sensitivityChart(n,m,k,current.frequencies);
+  $("status").textContent="Analysis completed successfully.";
+ }catch(e){
+  $("status").textContent="Calculation error: "+e.message;
+ }
+}
+
+window.addEventListener("resize",()=>{if(current)analyze();});
+analyze();
+</script>
+</body>
+</html>
